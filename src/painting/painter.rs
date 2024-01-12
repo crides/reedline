@@ -151,20 +151,10 @@ impl Painter {
         // Marking the painter state as larger buffer to avoid animations
         self.large_buffer = required_lines >= screen_height;
 
-        // This might not be terribly performant. Testing it out
-        let is_reset = || match cursor::position() {
-            // when output something without newline, the cursor position is at current line.
-            // but the prompt_start_row is next line.
-            // in this case we don't want to reset, need to `add 1` to handle for such case.
-            Ok(position) => position.1 + 1 < self.prompt_start_row,
-            Err(_) => false,
-        };
-
         // Moving the start position of the cursor based on the size of the required lines
-        if self.large_buffer || is_reset() {
-            self.prompt_start_row = 0;
-        } else if required_lines >= remaining_lines {
-            let extra = required_lines.saturating_sub(remaining_lines);
+        if required_lines >= remaining_lines {
+            let extra =
+                std::cmp::min(required_lines, screen_height).saturating_sub(remaining_lines);
             self.queue_universal_scroll(extra)?;
             self.prompt_start_row = self.prompt_start_row.saturating_sub(extra);
         }
@@ -477,14 +467,14 @@ impl Painter {
     // If the prompt is in the middle of a multiline buffer, then the output to stdout
     // could overwrite the buffer writing
     pub(crate) fn move_cursor_to_end(&mut self) -> Result<()> {
-        let final_row = self.prompt_start_row + self.last_required_lines;
-        let scroll = final_row.saturating_sub(self.screen_height() - 1);
-        if scroll != 0 {
-            self.queue_universal_scroll(scroll)?;
+        let final_row = std::cmp::min(
+            self.last_required_lines + self.prompt_start_row,
+            self.screen_height(),
+        );
+        self.stdout.queue(MoveTo(0, final_row))?;
+        if final_row == self.screen_height() {
+            self.stdout.queue(Print("\r\n"))?;
         }
-        self.stdout
-            .queue(MoveTo(0, final_row.min(self.screen_height() - 1)))?;
-
         self.stdout.flush()
     }
 
